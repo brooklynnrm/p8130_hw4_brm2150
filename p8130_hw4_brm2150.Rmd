@@ -42,4 +42,45 @@ b.    Let's do the wilcoxon sign test with the same dataset.The p value from thi
 ```{r}
 wilcox.test(sugar_test, alternative = "less", mu = 120, conf.int = 0.95)
 ```
+## Problem 2
 
+a.    Fit a regression model for the nonhuman primate brain mass with `ln_brain_mass` as a predictor for `glia_neuron_ratio`.
+
+```{r}
+brain_df = readxl::read_xlsx("data/Brain.xlsx") |>
+  janitor::clean_names()
+
+nonhuman_lm = brain_df |>
+  filter(species != "Homo sapiens") |>
+  lm(glia_neuron_ratio ~ ln_brain_mass, data = _)
+
+summary(nonhuman_lm)
+```
+
+b.    Using the model from above the predicted value for humans is calculated below.
+
+```{r}
+human_brain_mass = brain_df |>
+  filter(species == "Homo sapiens") |>
+  select(ln_brain_mass)
+
+predict.lm(nonhuman_lm, newdata = human_brain_mass)
+```
+
+c.    Construct a prediction interval. This prediction is most appropriate for the prediction of human brain `glia_neuron_ratio` because we can compare the human brain mass to the trend of nonhuman primates, rather than treating it as a new individual.
+
+```{r}
+predict.lm(nonhuman_lm, newdata = human_brain_mass, interval = "prediction")
+```
+
+d.  Construct a 95% confidence interval. The actual value for human brain `glia_neuron_ratio` falls into the 95% confidence interval range from the nonhuman primate linear regression model. The results suggest that humans do not have an excessive `glia_neuron_ratio` compared to  non-human primates.
+
+```{r}
+predict.lm(nonhuman_lm, newdata = human_brain_mass, interval = "confidence", level = 0.95)
+
+brain_df |>
+  filter( species == "Homo sapiens") |>
+  pull(glia_neuron_ratio)
+```
+
+e.    Considering that the value for human `ln_brain_mass` is the max for all values we have, we need to heed caution from our model because it was not trained on values that extreme.
