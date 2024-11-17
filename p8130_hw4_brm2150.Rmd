@@ -2,7 +2,7 @@
 title: "p8130_hw4_brm2150"
 author: "Brooklynn McNeil"
 date: "2024-11-17"
-output: github_document
+output: pdf_document
 ---
 
 Brooklynn McNeil's homwork assignment 4 for p8130 Biostatistical Methods 1.
@@ -10,6 +10,7 @@ Brooklynn McNeil's homwork assignment 4 for p8130 Biostatistical Methods 1.
 ```{r setup, include=FALSE}
 library(tidyverse)
 library (BSDA)
+library(modelr)
 
 knitr::opts_chunk$set(
   comment = '', fig.width = 8, fig.height = 6, out.width = "90%"
@@ -54,10 +55,10 @@ nonhuman_lm = brain_df |>
   filter(species != "Homo sapiens") |>
   lm(glia_neuron_ratio ~ ln_brain_mass, data = _)
 
-summary(nonhuman_lm)
+broom::tidy(nonhuman_lm)
 ```
 
-b.    Using the model from above the predicted value for humans is calculated below.
+b.    Using the model from above, the predicted value for humans is calculated below.
 
 ```{r}
 human_brain_mass = brain_df |>
@@ -84,3 +85,143 @@ brain_df |>
 ```
 
 e.    Considering that the value for human `ln_brain_mass` is the max for all values we have, we need to heed caution from our model because it was not trained on values that extreme.
+
+## Problem 3
+
+a.     Let's take a look at the heart disease data. There are 788 observations of 9 variables. The main predictor is `ERvisits` and the main outcome it `totalcost`. Other important covariates include, `age`, `gender`, `interventions`, `drugs`, `complications`, `comorbidities`, and `duration` of stay.
+
+```{r}
+heart_df = read_csv("data/HeartDisease.csv")
+
+head(heart_df)
+
+summary(heart_df$ERvisits)
+summary(heart_df$totalcost)
+summary(heart_df$age)
+summary(heart_df$interventions)
+summary(heart_df$drugs)
+summary(heart_df$gender)
+
+heart_df |>
+  ggplot(aes(x = ERvisits, y = totalcost, group = age)) +
+  geom_point()
+```
+
+b.    Investigate the distribution of total cost. With a histogram we can see that the data is very rightly skewed. The `qqnorm` plot without transformation also proves that the data is not normally distributed as is. Performing a log transformation give the data a more normal distribution.
+
+```{r}
+### with historgram
+
+heart_df |>
+  ggplot(aes(x = totalcost)) +
+  geom_histogram()
+
+### with qq plot
+# no transformation
+heart_df |>
+  filter(totalcost > 0) |>                # Filter out zero or negative values
+  pull(totalcost) |>
+  qqnorm()
+
+# log transformation
+heart_log = heart_df |>
+  filter(totalcost > 0) |>               
+  mutate(totalcost_log = log(totalcost)) 
+
+qqnorm(heart_log$totalcost_log) 
+
+# square root transformation
+heart_sqrt = heart_df |>
+  filter(totalcost > 0) |>               
+  mutate(totalcost_sqrt = sqrt(totalcost)) |>
+  pull(totalcost_sqrt)
+  
+qqnorm(heart_sqrt)
+
+# inverse transformation
+heart_inverse = heart_df |>
+  filter(totalcost > 0) |>
+  mutate(totalcost_inverse = 1/totalcost) 
+
+qqnorm(heart_inverse$totalcost_inverse)
+
+## test the log transformation with histogram
+
+heart_log|>
+  ggplot(aes(x = totalcost_log)) +
+  geom_histogram()
+```
+
+c.    Create a `comp_bin` variable for if there were no complications `0` or 1 or more `1`.
+
+```{r}
+heart_log =
+  heart_log |>
+  mutate(comp_bin = case_when(
+    complications == 0 ~ 0,
+    complications != 0 ~ 1
+  ))
+```
+
+d.    Create a linear regression model for the predictor of ER visits and the outcome of log transformed total cost. The model has a p-value of 3.49e-20, which gives plenty of evidence for rejecting the null hypothesis that ER visits has no correlation with the log total cost. The estimate for ER visits suggest that for each ER visit the log total cost will increase by 0.227. 
+
+```{r}
+# linear regression model
+totalcost_lm = 
+  lm(totalcost_log ~ ERvisits, data = heart_log)
+broom::tidy(totalcost_lm)
+
+# plot the model
+
+heart_log |>
+  gather_predictions(totalcost_lm)|>
+  ggplot(aes(x = ERvisits, y = totalcost_log)) +
+  geom_point() +
+  geom_line(aes(y = pred, color = "blue")) +
+  labs(title = "Correlation of ER visits and log total Cost",
+       y = "log of total cost",
+       x = "ER visits")
+```
+
+e.    Let's fit a multiple linear regression model with `ERvisist` and `comp_bin` as predictors for `totalcost_log`.
+
+```{r}
+# test if `comp_bin` is an effect modifier
+model1 = 
+  lm(totalcost_log ~ ERvisits * comp_bin, data = heart_log)
+broom::tidy(model1)
+```
+
+The p-value of the interaction term is greater than 0.05 so we can conclude that `comp_bin` is not an effect modifier. Since the p value comparing the model with and without `comp_bin` is less than 0.05 we can conclude that `comp_bin` is a confounding variable. We should keep it in the further analysis since it has an effect on the total cost.
+
+```{r}
+# test if `comp_bin` is a confounding variable
+model_noComp = 
+  lm(totalcost_log ~ ERvisits, data = heart_log)
+broom::tidy(model_noComp)
+
+model_withComp = 
+  lm(totalcost_log ~ ERvisits + comp_bin, data = heart_log)
+broom::tidy(model_withComp)
+
+broom::tidy(anova(model_noComp, model_withComp))$p.value
+```
+
+f.    Fit MLRs for other variables `age`, `gender`, and `duration`. 
+
+```{r}
+mlr_model = 
+  lm(totalcost_log ~ ERvisits + comp_bin + age + gender + duration, data = heart_log)
+
+broom::tidy(mlr_model)
+```
+The predictors that are significant are `ERvsiits`, `comp_bin`, `age`, and `duration` because they all have a p-value less than 0.05. These should all be included in the further analysis.
+
+```{r}
+# calculate root mean squared error for the SLR and MLR
+
+rmse(totalcost_lm, data = heart_log)
+rmse(mlr_model, data = heart_log)
+```
+
+The `rmse()` is lower for the model fitted with multiple variables, so it would be the more accurate model to move forward with.
